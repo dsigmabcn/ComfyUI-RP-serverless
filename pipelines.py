@@ -94,11 +94,12 @@ class Payload_ZIT:
         return {"pipe_type": "i2i", "pipeline_args": Payload_ZIT._apply_extras(args, cfg_norm, sigmas, lora_path,lora_strength)}
 
     @staticmethod
-    def inpaint(prompt, image_b64, mask_b64, steps, seed, guidance_scale, cfg_norm, sigmas=None, lora_path=None, lora_strength=1.0):
+    def inpaint(prompt, image_b64, mask_b64, strength, steps, seed, guidance_scale, cfg_norm, sigmas=None, lora_path=None, lora_strength=1.0):
         args = {
             "prompt": prompt,
             "image": image_b64,
             "mask_image": mask_b64,
+            "strength": strength,
             "num_inference_steps": steps,
             "seed": seed,
             "guidance_scale": guidance_scale

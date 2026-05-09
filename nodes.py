@@ -131,7 +131,7 @@ class ZIT_Advanced:
 
         # Payloads updated with cfg_normalization and sigmas
         if input_image_b64 and mask_image_b64: # inpaint pipeline
-            payload = Payload_ZIT.inpaint(prompt, input_image_b64, mask_image_b64, steps, seed, guidance, cfg_normalization, sigma_list, lora_path, lora_strength)        
+            payload = Payload_ZIT.inpaint(prompt, input_image_b64, mask_image_b64, denoise, steps, seed, guidance, cfg_normalization, sigma_list, lora_path, lora_strength)        
         elif input_image_b64: # img2img pipeline
             payload = Payload_ZIT.img2img(prompt, denoise, steps, seed, guidance, input_image_b64, cfg_normalization, sigma_list, lora_path,lora_strength)        
         else: # txt2img pipeline            
@@ -158,29 +158,29 @@ class ZIT_Advanced:
         return {"samples": torch.zeros([1, 16, height // 8, width // 8])}
 
 
-class Wan22_Simple:
-    """
-    Simplified Wan 2.1 Video generation node. 
-    Switch automatically between T2V and I2V based on image input.
-    """
-    def __init__(self):
-        pass
+class Wan22_Base:
+    """Helper to keep node code DRY"""
+    def _img_to_b64(self, image):
+        if image is None: return None
+        i = 255. * image[0].cpu().numpy()
+        img = Image.fromarray(np.uint8(i))
+        buffered = io.BytesIO()
+        img.save(buffered, format="PNG")
+        return base64.b64encode(buffered.getvalue()).decode("utf-8")
 
+class Wan22_Simple(Wan22_Base):
     @classmethod
     def INPUT_TYPES(s):
         return {
             "required": {
                 "api_token": ("STRING", {"default": "Enter RunPod API Key"}),
                 "endpoint_id": ("STRING", {"default": "Enter Endpoint ID"}),
-                "prompt": ("STRING", {"multiline": True, "default": "A cinematic shot of a dragon flying over a volcano"}),
+                "prompt": ("STRING", {"multiline": True, "default": "A cinematic dragon"}),
                 "width": ("INT", {"default": 1280, "min": 256, "max": 1280, "step": 64}),
                 "height": ("INT", {"default": 720, "min": 256, "max": 720, "step": 64}),
-                "num_frames": ("INT", {"default": 81, "min": 1, "max": 121}),
+                "num_frames": ("INT", {"default": 81}),
             },
-            "optional": {
-                "image": ("IMAGE",),
-                "fps": ("INT", {"default": 16, "min": 1, "max": 60}),
-            }
+            "optional": {"image": ("IMAGE",), "fps": ("INT", {"default": 16})}
         }
 
     RETURN_TYPES = ("IMAGE", "STRING")
@@ -189,37 +189,23 @@ class Wan22_Simple:
     CATEGORY = "serverless/Wan22"
 
     def generate(self, api_token, endpoint_id, prompt, width, height, num_frames, image=None, fps=16):
-        # 1. Determine Pipeline Type
-        if image is not None:
-            # Prepare image for I2V
-            i = 255. * image[0].cpu().numpy()
-            img = Image.fromarray(np.uint8(i))
-            buffered = io.BytesIO()
-            img.save(buffered, format="PNG")
-            img_b64 = base64.b64encode(buffered.getvalue()).decode("utf-8")
-            
-            payload = Payload_Wan.img2vid(prompt, img_b64, steps=30, seed=0, guidance_scale=6.0, num_frames=num_frames, fps=fps)
+        img_b64 = self._img_to_b64(image)
+        
+        # Cleaner logic: Use the pipeline directly
+        if img_b64:
+            payload = Payload_Wan.img2vid(prompt, img_b64, 30, 0, 6.0, num_frames, fps)
         else:
-            payload = Payload_Wan.txt2vid(prompt, width, height, steps=30, seed=0, guidance_scale=6.0, num_frames=num_frames, fps=fps)
+            payload = Payload_Wan.txt2vid(prompt, width, height, 30, 0, 6.0, num_frames, fps)
 
         try:
             result = RunPodClient.send_and_poll(api_token, endpoint_id, payload, timeout=600)
-            # Wan handler returns {"video": b64, "image": b64_preview}
-            preview_tensor = RunPodClient.process_output_image(result["output"].get("image"))
-            video_b64 = result["output"].get("video")
-            
-            return (preview_tensor, video_b64)
+            preview = RunPodClient.process_output_image(result["output"].get("image"))
+            return (preview, result["output"].get("video"))
         except Exception as e:
             print(f"❌ Wan Simple Error: {e}")
             return (torch.zeros((1, height, width, 3)), "")
 
-class Wan22_Advanced:
-    """
-    Advanced Wan 2.1/2.2 Video Node with Vid2Vid and fine-tuned control.
-    """
-    def __init__(self):
-        pass
-
+class Wan22_Advanced(Wan22_Base):
     @classmethod
     def INPUT_TYPES(s):
         return {
@@ -230,17 +216,17 @@ class Wan22_Advanced:
                 "width": ("INT", {"default": 1280}),
                 "height": ("INT", {"default": 720}),
                 "num_frames": ("INT", {"default": 81}),
-                "fps": ("INT", {"default": 16,"min":8,"max":24}),
-                "seed": ("INT", {"default": 0, "min": 0, "max": 0xffffffffffffffff}),
+                "fps": ("INT", {"default": 16}),
+                "seed": ("INT", {"default": 0}),
                 "steps": ("INT", {"default": 40}),
-                "guidance_scale": ("FLOAT", {"default": 6.0, "min": 0.0, "max": 20.0}),
-                "denoise": ("FLOAT", {"default": 0.7, "min": 0.0, "max": 1.0}),
+                "guidance_scale": ("FLOAT", {"default": 6.0}),
+                "denoise": ("FLOAT", {"default": 0.7}),
             },
             "optional": {
-                "negative_prompt": ("STRING", {"multiline": True, "default": "low quality, blurry"}),
+                "negative_prompt": ("STRING", {"multiline": True}),
                 "image": ("IMAGE",),
-                "video_input": ("STRING", {"default": "base64_string_here"}),
-                "lora": ("serverless_LORA",), # Reusing your existing Lora loader type
+                "video_input": ("STRING", {"default": ""}),
+                "lora": ("serverless_LORA",),
             }
         }
 
@@ -250,50 +236,34 @@ class Wan22_Advanced:
     CATEGORY = "serverless/Wan22"
 
     def generate(self, **kwargs):
-        # Extract inputs
-        p = kwargs
-        prompt = p['positive_prompt']
-        neg_prompt = p.get('negative_prompt', "")
-        fps = p.get("fps", 16)
+        # 1. Process Assets
+        img_b64 = self._img_to_b64(kwargs.get("image"))
+        vid_b64 = kwargs.get("video_input")
+        
+        # 2. Select Payload via Pipeline Class
+        if vid_b64:
+            payload = Payload_Wan.vid2vid(kwargs["positive_prompt"], vid_b64, kwargs["denoise"], kwargs["steps"], kwargs["seed"], kwargs["guidance_scale"], kwargs["num_frames"], kwargs["fps"])
+        elif img_b64:
+            payload = Payload_Wan.img2vid(kwargs["positive_prompt"], img_b64, kwargs["steps"], kwargs["seed"], kwargs["guidance_scale"], kwargs["num_frames"], kwargs["fps"])
+        else:
+            payload = Payload_Wan.txt2vid(kwargs["positive_prompt"], kwargs["width"], kwargs["height"], kwargs["steps"], kwargs["seed"], kwargs["guidance_scale"], kwargs["num_frames"], kwargs["fps"])
 
-        if p.get("negative_prompt"):
-            
+        # 3. Handle LoRA / Negative Prompt (if your API supports them in pipeline_args)
+        if kwargs.get("lora"):
+            payload["pipeline_args"]["lora_path"] = kwargs["lora"]["path"]
+            payload["pipeline_args"]["lora_strength"] = kwargs["lora"]["strength"]
+        
+        if kwargs.get("negative_prompt"):
+            payload["pipeline_args"]["negative_prompt"] = kwargs["negative_prompt"]
 
-        # Determine logic based on inputs
-        if p.get("video_input"): # Vid2Vid
-            payload = Payload_Wan.vid2vid(
-                prompt, p["video_input"], p["denoise"], p["steps"], p["seed"], 
-                p["guidance_scale"], p["num_frames"]
-            )
-        elif p.get("image") is not None: # Img2Vid
-            i = 255. * p["image"][0].cpu().numpy()
-            img = Image.fromarray(np.uint8(i))
-            buffered = io.BytesIO()
-            img.save(buffered, format="PNG")
-            img_b64 = base64.b64encode(buffered.getvalue()).decode("utf-8")
-            
-            payload = Payload_Wan.img2vid(
-                prompt, img_b64, p["steps"], p["seed"], 
-                p["guidance_scale"], p["num_frames"]
-            )
-        else: # Txt2Vid
-            payload = Payload_Wan.txt2vid(
-                prompt, p["width"], p["height"], p["steps"], p["seed"], 
-                p["guidance_scale"], p["num_frames"]
-            )
-
-        # Inject LoRA if present (Payload_Wan would need an _apply_extras similar to your ZIT payload)
-        if p.get("lora"):
-            payload["pipeline_args"]["lora_path"] = p["lora"]["path"]
-            payload["pipeline_args"]["lora_strength"] = p["lora"]["strength"]
-
+        # 4. Execute
         try:
-            result = RunPodClient.send_and_poll(p["api_token"], p["endpoint_id"], payload, timeout=600)
-            preview_tensor = RunPodClient.process_output_image(result["output"].get("image"))
-            return (preview_tensor, result["output"].get("video"))
+            res = RunPodClient.send_and_poll(kwargs["api_token"], kwargs["endpoint_id"], payload)
+            preview = RunPodClient.process_output_image(res["output"].get("image"))
+            return (preview, res["output"].get("video"))
         except Exception as e:
             print(f"❌ Wan Advanced Error: {e}")
-            return (torch.zeros((1, p["height"], p["width"], 3)), "")
+            return (torch.zeros((1, kwargs["height"], kwargs["width"], 3)), "")
 
 
 
@@ -322,18 +292,46 @@ class serverless_Lora_Loader:
         # We return a dictionary containing both values
         return ({"path": lora_path, "strength": strength},)
 
+class API_endpoint_tokens:
+    """
+    A node to plug in the Runpod API tokens and worker id to pass to the nodes
+    """
+    def __init__(self):
+        pass
+
+    @classmethod
+    def INPUT_TYPES(s):
+        return {
+            "required": {
+                "api_token": ("STRING", {"default": "Enter RunPod API Key", "password": True}),
+                "endpoint_id": ("STRING", {"default": "Enter Endpoint ID"}),
+            }
+        }
+
+    RETURN_TYPES = ("STRING","STRING")
+    RETURN_NAMES = ("api_token_out","endpoint_id_out")
+    FUNCTION = "server_info"
+    CATEGORY = "serverless/utils"
+
+    def server_info (self, api_token, endpoint_id):
+        # We return a dictionary containing both values
+        return (api_token, endpoint_id)
+
+
 NODE_CLASS_MAPPINGS = {
     "ZIT_Simple": ZIT_Simple,    
     "ZIT_Advanced": ZIT_Advanced,
-    "serverless_Lora_Loader": serverless_Lora_Loader,
     "Wan22_Simple": Wan22_Simple,
-    "Wan22_Advanced": Wan22_Advanced
+    "Wan22_Advanced": Wan22_Advanced,
+    "serverless_Lora_Loader": serverless_Lora_Loader,
+    "API_endpoint_tokens": API_endpoint_tokens
 }
 
 NODE_DISPLAY_NAME_MAPPINGS = {
     "ZIT_Simple": "[Simple] Z-Image Turbo API",
-    "ZIT_Advanced": "[Advanced] Z-Image Turbo API",
-    "serverless_Lora_Loader": "Lora settings [Advanced nodes] API",
+    "ZIT_Advanced": "[Advanced] Z-Image Turbo API",    
     "Wan22_Simple": "Wan 2.1 Video [Simple]",
-    "Wan22_Advanced": "Wan 2.1 Video [Advanced]"
+    "Wan22_Advanced": "Wan 2.1 Video [Advanced]",
+    "serverless_Lora_Loader": "Lora settings [Advanced nodes] API",
+    "API_endpoint_tokens": "API and worker information"
 }
