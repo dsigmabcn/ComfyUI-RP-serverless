@@ -53,6 +53,7 @@ class RunPodClient:
         latent_data = base64.b64decode(base64_latent)
         with io.BytesIO(latent_data) as f:
             # map_location='cpu' ensures we don't crash if the user doesn't have a high-end GPU
+            # flagged as moderate risk in Claude, acceptable as we run our own workers
             raw_latent = torch.load(f, map_location='cpu', weights_only=False)
         return {"samples": raw_latent}
 
@@ -109,53 +110,53 @@ class Payload_ZIT:
 
 class Payload_Wan:
     @staticmethod
-    def _apply_common_args(args, steps, seed, guidance_scale, num_frames, fps):
+    def _apply_common_args(args, steps, seed, guidance_scale, num_frames):
         """Standardizes video generation parameters."""
         args.update({
             "num_inference_steps": steps,
             "seed": seed,
             "guidance_scale": guidance_scale,
             "num_frames": num_frames,
-            "fps": fps
+            #"fps": fps
         })
         return args
 
     @staticmethod
-    def txt2vid(prompt, width, height, steps, seed, guidance_scale, num_frames=81, fps=16):
+    def txt2vid(prompt, width, height, steps, seed, guidance_scale, num_frames=81):
         args = {
             "prompt": prompt,
             "width": width,
             "height": height,
         }
-        payload = Payload_Wan._apply_common_args(args, steps, seed, guidance_scale, num_frames, fps)
+        payload = Payload_Wan._apply_common_args(args, steps, seed, guidance_scale, num_frames)
         return {"pipe_type": "txt2vid", "pipeline_args": payload}
 
     @staticmethod
-    def img2vid(prompt, image_b64, steps, seed, guidance_scale, num_frames=81, fps=16):
+    def img2vid(prompt, image_b64, steps, seed, guidance_scale, num_frames=81):
         args = {
             "prompt": prompt,
             "image": image_b64,
         }
-        payload = Payload_Wan._apply_common_args(args, steps, seed, guidance_scale, num_frames, fps)
+        payload = Payload_Wan._apply_common_args(args, steps, seed, guidance_scale, num_frames)
         return {"pipe_type": "img2vid", "pipeline_args": payload}
 
     @staticmethod
-    def vid2vid(prompt, video_b64, strength, steps, seed, guidance_scale, num_frames=81, fps=16):
+    def vid2vid(prompt, video_b64, strength, steps, seed, guidance_scale, num_frames=81):
         args = {
             "prompt": prompt,
             "video": video_b64,
             "strength": strength,
         }
-        payload = Payload_Wan._apply_common_args(args, steps, seed, guidance_scale, num_frames, fps)
+        payload = Payload_Wan._apply_common_args(args, steps, seed, guidance_scale, num_frames)
         return {"pipe_type": "vid2vid", "pipeline_args": payload}
 
     @staticmethod
-    def animate(prompt, image_b64, steps, seed, guidance_scale, num_frames=81, fps=16):
+    def animate(prompt, image_b64, steps, seed, guidance_scale, num_frames=81):
         args = {
             "prompt": prompt,
             "image": image_b64,
         }
-        payload = Payload_Wan._apply_common_args(args, steps, seed, guidance_scale, num_frames, fps)
+        payload = Payload_Wan._apply_common_args(args, steps, seed, guidance_scale, num_frames)
         return {"pipe_type": "animate", "pipeline_args": payload}
 
     @staticmethod

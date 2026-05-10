@@ -180,30 +180,38 @@ class Wan22_Simple(Wan22_Base):
                 "height": ("INT", {"default": 720, "min": 256, "max": 720, "step": 64}),
                 "num_frames": ("INT", {"default": 81}),
             },
-            "optional": {"image": ("IMAGE",), "fps": ("INT", {"default": 16})}
+            "optional": {"image": ("IMAGE",)}
         }
 
-    RETURN_TYPES = ("IMAGE", "STRING")
-    RETURN_NAMES = ("preview_frame", "video_base64")
+    RETURN_TYPES = ("IMAGE",)
+    RETURN_NAMES = ("images")
     FUNCTION = "generate"
     CATEGORY = "serverless/Wan22"
 
-    def generate(self, api_token, endpoint_id, prompt, width, height, num_frames, image=None, fps=16):
+    def generate(self, api_token, endpoint_id, prompt, width, height, num_frames, image=None):
         img_b64 = self._img_to_b64(image)
         
         # Cleaner logic: Use the pipeline directly
         if img_b64:
-            payload = Payload_Wan.img2vid(prompt, img_b64, 30, 0, 6.0, num_frames, fps)
+            payload = Payload_Wan.img2vid(prompt, img_b64, 30, 0, 6.0, num_frames)
         else:
-            payload = Payload_Wan.txt2vid(prompt, width, height, 30, 0, 6.0, num_frames, fps)
+            payload = Payload_Wan.txt2vid(prompt, width, height, 30, 0, 6.0, num_frames)
 
         try:
             result = RunPodClient.send_and_poll(api_token, endpoint_id, payload, timeout=600)
-            preview = RunPodClient.process_output_image(result["output"].get("image"))
-            return (preview, result["output"].get("video"))
+            output_data = result.get("output", {})
+            frames_list = output_data.get("frames", [])
+
+            if not frames_list:
+                raise ValueError("no frames received")
+
+            image_tensor = RunPodClient.process_output_frames(frames_list)
+
+            return (image_tensor,)
+
         except Exception as e:
             print(f"❌ Wan Simple Error: {e}")
-            return (torch.zeros((1, height, width, 3)), "")
+            return (torch.zeros((1, height, width, 3)), str(e))
 
 class Wan22_Advanced(Wan22_Base):
     @classmethod
@@ -216,7 +224,7 @@ class Wan22_Advanced(Wan22_Base):
                 "width": ("INT", {"default": 1280}),
                 "height": ("INT", {"default": 720}),
                 "num_frames": ("INT", {"default": 81}),
-                "fps": ("INT", {"default": 16}),
+                #"fps": ("INT", {"default": 16}),
                 "seed": ("INT", {"default": 0}),
                 "steps": ("INT", {"default": 40}),
                 "guidance_scale": ("FLOAT", {"default": 6.0}),
@@ -230,8 +238,8 @@ class Wan22_Advanced(Wan22_Base):
             }
         }
 
-    RETURN_TYPES = ("IMAGE", "STRING")
-    RETURN_NAMES = ("preview_frame", "video_base64")
+    RETURN_TYPES = ("IMAGE",)
+    RETURN_NAMES = ("images",)
     FUNCTION = "generate"
     CATEGORY = "serverless/Wan22"
 
@@ -242,11 +250,11 @@ class Wan22_Advanced(Wan22_Base):
         
         # 2. Select Payload via Pipeline Class
         if vid_b64:
-            payload = Payload_Wan.vid2vid(kwargs["positive_prompt"], vid_b64, kwargs["denoise"], kwargs["steps"], kwargs["seed"], kwargs["guidance_scale"], kwargs["num_frames"], kwargs["fps"])
+            payload = Payload_Wan.vid2vid(kwargs["positive_prompt"], vid_b64, kwargs["denoise"], kwargs["steps"], kwargs["seed"], kwargs["guidance_scale"], kwargs["num_frames"])
         elif img_b64:
-            payload = Payload_Wan.img2vid(kwargs["positive_prompt"], img_b64, kwargs["steps"], kwargs["seed"], kwargs["guidance_scale"], kwargs["num_frames"], kwargs["fps"])
+            payload = Payload_Wan.img2vid(kwargs["positive_prompt"], img_b64, kwargs["steps"], kwargs["seed"], kwargs["guidance_scale"], kwargs["num_frames"])
         else:
-            payload = Payload_Wan.txt2vid(kwargs["positive_prompt"], kwargs["width"], kwargs["height"], kwargs["steps"], kwargs["seed"], kwargs["guidance_scale"], kwargs["num_frames"], kwargs["fps"])
+            payload = Payload_Wan.txt2vid(kwargs["positive_prompt"], kwargs["width"], kwargs["height"], kwargs["steps"], kwargs["seed"], kwargs["guidance_scale"], kwargs["num_frames"])
 
         # 3. Handle LoRA / Negative Prompt (if your API supports them in pipeline_args)
         if kwargs.get("lora"):
@@ -258,13 +266,19 @@ class Wan22_Advanced(Wan22_Base):
 
         # 4. Execute
         try:
-            res = RunPodClient.send_and_poll(kwargs["api_token"], kwargs["endpoint_id"], payload)
-            preview = RunPodClient.process_output_image(res["output"].get("image"))
-            return (preview, res["output"].get("video"))
+            res = RunPodClient.send_and_poll(kwargs["api_token"], kwargs["endpoint_id"], payload, timeout=600)
+            output_data = res.get("output", {})
+            frames_list = output_data.get("frames", [])
+
+            if not frames_list:
+                raise ValueError("No frames received from RunPod")
+
+            image_tensor = RunPodClient.process_output_frames(frames_list)
+            return (image_tensor,)
+        
         except Exception as e:
             print(f"❌ Wan Advanced Error: {e}")
-            return (torch.zeros((1, kwargs["height"], kwargs["width"], 3)), "")
-
+            return (torch.zeros((1, kwargs["height"], kwargs["width"], 3)), str(e))
 
 
 class serverless_Lora_Loader:
