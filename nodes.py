@@ -193,10 +193,10 @@ class Wan22_Simple(Wan22_Base):
         
         # Cleaner logic: Use the pipeline directly
         if img_b64:
+            print("running img2vid")
             payload = Payload_Wan.img2vid(prompt, img_b64, 30, 0, 6.0, num_frames)
         else:
             payload = Payload_Wan.txt2vid(prompt, width, height, 30, 0, 6.0, num_frames)
-
         try:
             result = RunPodClient.send_and_poll(api_token, endpoint_id, payload, timeout=600)
             output_data = result.get("output", {})

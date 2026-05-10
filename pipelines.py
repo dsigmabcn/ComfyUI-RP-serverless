@@ -56,6 +56,21 @@ class RunPodClient:
             # flagged as moderate risk in Claude, acceptable as we run our own workers
             raw_latent = torch.load(f, map_location='cpu', weights_only=False)
         return {"samples": raw_latent}
+    
+    @staticmethod
+    def process_output_frames(frames_list):
+        if not frames_list:
+            print("no frames list")
+            return None
+        tensors = []
+        for frame_b64 in frames_list:
+            image_data = base64.b64decode(frame_b64)
+            image = Image.open(io.BytesIO(image_data)).convert("RGB")
+            image_np = np.array(image).astype(np.float32) / 255.0
+            print(f"🔍 Decoded frame min/max: {image_np.min():.3f} / {image_np.max():.3f}")
+            tensors.append(torch.from_numpy(image_np))
+        return torch.stack(tensors, dim=0)
+    
 
 class Payload_ZIT:
     @staticmethod
