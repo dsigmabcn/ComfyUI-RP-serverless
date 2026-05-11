@@ -36,6 +36,63 @@ class RunPodClient:
             time.sleep(2)
 
     @staticmethod
+    def send_and_stream(api_token, endpoint_id, payload, timeout=900):
+        url_run = f"https://api.runpod.ai/v2/{endpoint_id}/run"
+        headers = {"Authorization": f"Bearer {api_token}", "Content-Type": "application/json"}
+
+        # 1. Submit job
+        init_response = requests.post(url_run, headers=headers, json={"input": payload}, timeout=15)
+        init_response.raise_for_status()
+        job_id = init_response.json().get("id")
+        print(f"📤 Job submitted: {job_id}")
+
+        # 2. Wait for inference to complete via /status
+        url_status = f"https://api.runpod.ai/v2/{endpoint_id}/status/{job_id}"
+        url_stream = f"https://api.runpod.ai/v2/{endpoint_id}/stream/{job_id}"
+        start_time = time.time()
+
+        print("⏳ Waiting for inference to complete...")
+        while True:
+            if time.time() - start_time > timeout:
+                raise TimeoutError("RunPod job timed out.")
+
+            status_response = requests.get(url_status, headers=headers, timeout=15)
+            status_data = status_response.json()
+            status = status_data.get("status")
+
+            if status in ["FAILED", "CANCELLED"]:
+                raise Exception(f"Job {status}")
+
+            if status == "COMPLETED":
+                print("✅ Inference complete, streaming frames...")
+                break
+
+            # Still running — wait longer between polls, no rush
+            print(f"🔄 Status: {status}, elapsed: {int(time.time() - start_time)}s")
+            time.sleep(10)  # poll every 10s during inference
+
+        # 3. Now collect all streamed frames
+        frames = []
+        while True:
+            response = requests.get(url_stream, headers=headers, timeout=30)
+            data = response.json()
+
+            for chunk in data.get("stream", []):
+                frames.append(chunk["output"]["frame"])
+                print(f"🖼️ Received frame {len(frames)}")
+
+            if data.get("status") == "COMPLETED":
+                break
+            if data.get("status") in ["FAILED", "CANCELLED"]:
+                raise Exception(f"Stream {data.get('status')}")
+
+            time.sleep(1)
+
+        print(f"✅ All {len(frames)} frames received.")
+        return frames
+    
+    
+    @staticmethod
     def process_output_image(base64_image):
         """Converts base64 string to a ComfyUI-compatible image tensor."""
         if not base64_image:

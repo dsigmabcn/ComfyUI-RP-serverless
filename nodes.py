@@ -198,9 +198,9 @@ class Wan22_Simple(Wan22_Base):
         else:
             payload = Payload_Wan.txt2vid(prompt, width, height, 30, 0, 6.0, num_frames)
         try:
-            result = RunPodClient.send_and_poll(api_token, endpoint_id, payload, timeout=600)
-            output_data = result.get("output", {})
-            frames_list = output_data.get("frames", [])
+            frames_list = RunPodClient.send_and_stream(api_token, endpoint_id, payload, timeout=600)
+            #output_data = result.get("output", {})
+            #frames_list = output_data.get("frames", [])
 
             if not frames_list:
                 raise ValueError("no frames received")
@@ -266,9 +266,9 @@ class Wan22_Advanced(Wan22_Base):
 
         # 4. Execute
         try:
-            res = RunPodClient.send_and_poll(kwargs["api_token"], kwargs["endpoint_id"], payload, timeout=600)
-            output_data = res.get("output", {})
-            frames_list = output_data.get("frames", [])
+            frames_list = RunPodClient.send_and_stream(kwargs["api_token"], kwargs["endpoint_id"], payload, timeout=600)
+            #output_data = res.get("output", {})
+            #frames_list = output_data.get("frames", [])
 
             if not frames_list:
                 raise ValueError("No frames received from RunPod")
